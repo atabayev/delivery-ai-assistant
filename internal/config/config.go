@@ -16,7 +16,8 @@ type Config struct {
 }
 
 type HTTPConfig struct {
-	Timeout time.Duration `yaml:"timeout"`
+	Timeout       time.Duration `yaml:"timeout"`
+	StreamTimeout time.Duration `yaml:"stream_timeout"`
 }
 
 type OpenAIConfig struct {

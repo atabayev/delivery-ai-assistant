@@ -7,7 +7,7 @@ import (
 )
 
 func (svc *Service) SendMessage(ctx context.Context, msg string) (domain.ChatReply, error) {
-	resp, err := svc.messenger.Send(ctx, msg)
+	resp, err := svc.messenger.Chat(ctx, msg)
 	if err != nil {
 		return domain.ChatReply{}, fmt.Errorf("svc.messenger.Send: %w", err)
 	}
