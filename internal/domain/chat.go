@@ -11,3 +11,8 @@ type Tokens struct {
 	Completion int
 	Total      int
 }
+
+type StreamResult struct {
+	Text string
+	Err  error
+}

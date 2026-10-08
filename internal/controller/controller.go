@@ -7,6 +7,7 @@ import (
 
 type Service interface {
 	SendMessage(context.Context, string) (domain.ChatReply, error)
+	StreamMessage(context.Context, string) error
 }
 
 type Controller struct {

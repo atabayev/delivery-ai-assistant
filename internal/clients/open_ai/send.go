@@ -4,48 +4,19 @@ import (
 	"bytes"
 	"context"
 	"delivery-ai-assistant/internal/domain"
-	"encoding/json"
+
 	"fmt"
 	"net/http"
+
+	"github.com/bytedance/sonic"
 )
 
 const pathSend = "/chat/completions"
 
-type requestBody struct {
-	Model       string       `json:"model"`
-	Messages    []reqMessage `json:"messages"`
-	Temperature *float64     `json:"temperature,omitempty"`
-}
-
-type reqMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type responseBody struct {
-	Model   string `json:"model"`
-	Choices []struct {
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
-	} `json:"choices"`
-	Usage struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
-	} `json:"usage"`
-}
-
-type errResponseBody struct {
-	Error struct {
-		Message string `json:"message"`
-	} `json:"error"`
-}
-
-// Send sends a user message to the OpenAI Chat Completions API
+// Chat sends a user message to the OpenAI Chat Completions API
 // and returns the model reply along with token usage.
-func (cli *Client) Send(ctx context.Context, msg string) (domain.ChatReply, error) {
-	req, err := cli.prepareRequest(ctx, msg)
+func (cli *Client) Chat(ctx context.Context, msg string) (domain.ChatReply, error) {
+	req, err := cli.prepareRequest(ctx, msg, false)
 	if err != nil {
 		return domain.ChatReply{}, fmt.Errorf("cannot prepare request: %w", err)
 	}
@@ -60,10 +31,10 @@ func (cli *Client) Send(ctx context.Context, msg string) (domain.ChatReply, erro
 	return cli.handleResponse(resp)
 }
 
-func (cli *Client) prepareRequest(ctx context.Context, msg string) (*http.Request, error) {
+func (cli *Client) prepareRequest(ctx context.Context, msg string, isStream bool) (*http.Request, error) {
 	fullURL := cli.baseURL + pathSend
 
-	body, err := cli.prepareRequestBody(msg)
+	body, err := cli.prepareRequestBody(msg, isStream)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare request body: %w", err)
 	}
@@ -74,12 +45,11 @@ func (cli *Client) prepareRequest(ctx context.Context, msg string) (*http.Reques
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	//req.Header.Set("Authorization", "Bearer "+cli.apiKey)
 
 	return req, nil
 }
 
-func (cli *Client) prepareRequestBody(msg string) ([]byte, error) {
+func (cli *Client) prepareRequestBody(msg string, isStream bool) ([]byte, error) {
 	reqBody := requestBody{
 		Model: cli.model,
 		Messages: []reqMessage{
@@ -87,7 +57,14 @@ func (cli *Client) prepareRequestBody(msg string) ([]byte, error) {
 		},
 	}
 
-	return json.Marshal(reqBody)
+	if isStream {
+		reqBody.Stream = &isStream
+		reqBody.StreamOptions = &streamOptions{
+			IncludeUsage: &isStream,
+		}
+	}
+
+	return sonic.Marshal(reqBody)
 }
 
 func (cli *Client) handleResponse(resp *http.Response) (domain.ChatReply, error) {
@@ -97,7 +74,7 @@ func (cli *Client) handleResponse(resp *http.Response) (domain.ChatReply, error)
 
 	var respBody responseBody
 
-	if err := json.NewDecoder(resp.Body).Decode(&respBody); err != nil {
+	if err := sonic.ConfigDefault.NewDecoder(resp.Body).Decode(&respBody); err != nil {
 		return domain.ChatReply{}, fmt.Errorf("failed to decode response body: %w", err)
 	}
 
@@ -123,7 +100,7 @@ func (cli *Client) checkStatusCode(resp *http.Response) error {
 
 	var errResp errResponseBody
 
-	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
+	if err := sonic.ConfigDefault.NewDecoder(resp.Body).Decode(&errResp); err != nil {
 		return fmt.Errorf("failed to read error response body, status_code: %d: %w", resp.StatusCode, err)
 	}
 
