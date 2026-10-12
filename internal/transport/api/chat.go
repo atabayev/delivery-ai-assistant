@@ -52,7 +52,7 @@ func (h *ChatHandler) chatReqToDomain(req chatRequest) domain.ChatMessage {
 
 func (h *ChatHandler) domainToChatReq(res domain.ChatReply) chatResponse {
 	return chatResponse{
-		Content: res.Message,
+		Content: res.Content,
 		Model:   res.Model,
 		Usage: usage{
 			PromptTokens:     res.Usage.Prompt,
@@ -79,10 +79,12 @@ func (h *ChatHandler) validateChatReq(w http.ResponseWriter, req chatRequest) er
 			msg.Role != domain.RoleUser &&
 			msg.Role != domain.RoleAssistant {
 			h.handleError(w, http.StatusBadRequest, "invalid role")
+			return fmt.Errorf("invalid role")
 		}
 
-		if msg.Content != "" {
+		if msg.Content == "" {
 			h.handleError(w, http.StatusBadRequest, "invalid content")
+			return fmt.Errorf("empty content")
 		}
 	}
 

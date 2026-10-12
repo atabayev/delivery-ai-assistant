@@ -15,8 +15,8 @@ const pathSend = "/chat/completions"
 
 // Chat sends a user message to the OpenAI Chat Completions API
 // and returns the model reply along with token usage.
-func (cli *Client) Chat(ctx context.Context, msg string) (domain.ChatReply, error) {
-	req, err := cli.prepareRequest(ctx, msg, false)
+func (cli *Client) Chat(ctx context.Context, msg domain.ChatMessage) (domain.ChatReply, error) {
+	req, err := cli.prepareRequest(ctx, &msg, false)
 	if err != nil {
 		return domain.ChatReply{}, fmt.Errorf("cannot prepare request: %w", err)
 	}
@@ -34,7 +34,7 @@ func (cli *Client) Chat(ctx context.Context, msg string) (domain.ChatReply, erro
 	return cli.handleResponse(resp)
 }
 
-func (cli *Client) prepareRequest(ctx context.Context, msg string, isStream bool) (*http.Request, error) {
+func (cli *Client) prepareRequest(ctx context.Context, msg *domain.ChatMessage, isStream bool) (*http.Request, error) {
 	fullURL := cli.baseURL + pathSend
 
 	body, err := cli.prepareRequestBody(msg, isStream)
@@ -52,12 +52,22 @@ func (cli *Client) prepareRequest(ctx context.Context, msg string, isStream bool
 	return req, nil
 }
 
-func (cli *Client) prepareRequestBody(msg string, isStream bool) ([]byte, error) {
+func (cli *Client) prepareRequestBody(msg *domain.ChatMessage, isStream bool) ([]byte, error) {
+	model := cli.model
+
+	if msg.Model != "" {
+		model = msg.Model
+	}
+
 	reqBody := requestBody{
-		Model: cli.model,
-		Messages: []reqMessage{
-			{Role: "user", Content: msg},
-		},
+		Model: model,
+	}
+
+	for _, m := range msg.Messages {
+		reqBody.Messages = append(reqBody.Messages, reqMessage{
+			Role:    m.Role,
+			Content: m.Content,
+		})
 	}
 
 	if isStream {
@@ -86,7 +96,7 @@ func (cli *Client) handleResponse(resp *http.Response) (domain.ChatReply, error)
 	}
 
 	return domain.ChatReply{
-		Message: respBody.Choices[0].Message.Content,
+		Content: respBody.Choices[0].Message.Content,
 		Model:   respBody.Model,
 		Usage: domain.Usage{
 			Prompt:     respBody.Usage.PromptTokens,

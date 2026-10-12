@@ -16,7 +16,7 @@ type Config struct {
 }
 
 type HTTPConfig struct {
-	Port int `yaml:"port"`
+	Port int `yaml:"http_port"`
 }
 
 type OpenAIConfig struct {

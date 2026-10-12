@@ -6,6 +6,6 @@ import (
 )
 
 type Messenger interface {
-	Chat(context.Context, string) (domain.ChatReply, error)
-	StreamChat(context.Context, string) (<-chan domain.StreamResult, error)
+	Chat(context.Context, domain.ChatMessage) (domain.ChatReply, error)
+	StreamChat(context.Context, domain.ChatMessage) (<-chan domain.StreamResult, error)
 }

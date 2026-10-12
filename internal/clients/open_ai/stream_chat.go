@@ -17,8 +17,8 @@ var errContextDone = errors.New("context done")
 
 // StreamSend sends a user message to the OpenAI Chat Completions API
 // and returns the model reply along with token usage.
-func (cli *Client) StreamChat(ctx context.Context, msg string) (<-chan domain.StreamResult, error) {
-	req, err := cli.prepareRequest(ctx, msg, true)
+func (cli *Client) StreamChat(ctx context.Context, msg domain.ChatMessage) (<-chan domain.StreamResult, error) {
+	req, err := cli.prepareRequest(ctx, &msg, true)
 	if err != nil {
 		return nil, fmt.Errorf("cannot prepare request: %w", err)
 	}

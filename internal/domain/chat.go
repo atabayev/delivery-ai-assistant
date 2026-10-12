@@ -7,7 +7,7 @@ const (
 )
 
 type ChatReply struct {
-	Message string
+	Content string
 	Model   string
 	Usage   Usage
 }

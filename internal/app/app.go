@@ -7,6 +7,7 @@ import (
 	"delivery-ai-assistant/internal/service"
 	"delivery-ai-assistant/internal/transport/api"
 	"fmt"
+	"log"
 	"net/http"
 )
 
@@ -38,6 +39,8 @@ func New(ctx context.Context) (*App, error) {
 }
 
 func (app *App) Start() error {
+	log.Println("listening ", app.server.Addr)
+
 	if err := app.server.ListenAndServe(); err != nil {
 		return fmt.Errorf("start server: %w", err)
 	}
