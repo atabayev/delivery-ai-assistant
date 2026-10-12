@@ -11,27 +11,26 @@ import (
 const defaultPath = "cicd/vars/env.prod.yaml"
 
 type Config struct {
-	HTTP   HTTPConfig   `yaml:"http"`
-	OpenAI OpenAIConfig `yaml:"openai"`
+	HTTPServer HTTPConfig   `yaml:"http_server"`
+	OpenAI     OpenAIConfig `yaml:"openai"`
 }
 
 type HTTPConfig struct {
+	Port int `yaml:"port"`
+}
+
+type OpenAIConfig struct {
+	BaseURL       string        `yaml:"base_url"`
+	Model         string        `yaml:"model"`
+	APIKey        string        `yaml:"api_key"`
 	Timeout       time.Duration `yaml:"timeout"`
 	StreamTimeout time.Duration `yaml:"stream_timeout"`
 }
 
-type OpenAIConfig struct {
-	BaseURL string `yaml:"base_url"`
-	Model   string `yaml:"model"`
-	APIKey  string `yaml:"api_key"`
-}
-
 // Load reads config from path (or CONFIG_PATH / default configs/env.prod.yaml),
 // then overrides openai.api_key from OPENAI_API_KEY if set.
-func Load(path string) (Config, error) {
-	if path == "" {
-		path = os.Getenv("CONFIG_PATH")
-	}
+func Load() (Config, error) {
+	path := os.Getenv("CONFIG_PATH")
 
 	if path == "" {
 		path = defaultPath
@@ -59,7 +58,10 @@ func Load(path string) (Config, error) {
 }
 
 func (c Config) validate() error {
-	if c.HTTP.Timeout <= 0 {
+	if c.HTTPServer.Port <= 0 {
+		return fmt.Errorf("invalid http server port: %d", c.HTTPServer.Port)
+	}
+	if c.OpenAI.Timeout <= 0 {
 		return fmt.Errorf("http.timeout must be > 0")
 	}
 	if c.OpenAI.BaseURL == "" {

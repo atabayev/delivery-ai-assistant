@@ -21,6 +21,9 @@ func (cli *Client) Chat(ctx context.Context, msg string) (domain.ChatReply, erro
 		return domain.ChatReply{}, fmt.Errorf("cannot prepare request: %w", err)
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, cli.timeout)
+	defer cancel()
+
 	resp, err := cli.httpClient.Do(req)
 	if err != nil {
 		return domain.ChatReply{}, fmt.Errorf("failed to send request: %w", err)
@@ -85,7 +88,7 @@ func (cli *Client) handleResponse(resp *http.Response) (domain.ChatReply, error)
 	return domain.ChatReply{
 		Message: respBody.Choices[0].Message.Content,
 		Model:   respBody.Model,
-		Token: domain.Tokens{
+		Usage: domain.Usage{
 			Prompt:     respBody.Usage.PromptTokens,
 			Completion: respBody.Usage.CompletionTokens,
 			Total:      respBody.Usage.TotalTokens,

@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-func (svc *Service) SendMessage(ctx context.Context, msg string) (domain.ChatReply, error) {
+func (svc *Service) Chat(ctx context.Context, msg domain.ChatMessage) (domain.ChatReply, error) {
 	resp, err := svc.messenger.Chat(ctx, msg)
 	if err != nil {
 		return domain.ChatReply{}, fmt.Errorf("svc.messenger.Send: %w", err)

@@ -23,6 +23,9 @@ func (cli *Client) StreamChat(ctx context.Context, msg string) (<-chan domain.St
 		return nil, fmt.Errorf("cannot prepare request: %w", err)
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, cli.streamTimeout)
+	defer cancel()
+
 	resp, err := cli.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
