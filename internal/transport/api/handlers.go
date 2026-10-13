@@ -7,6 +7,7 @@ import (
 
 type Service interface {
 	Chat(context.Context, domain.ChatMessage) (domain.ChatReply, error)
+	StreamChat(ctx context.Context, msg domain.ChatMessage) (<-chan domain.StreamResult, error)
 }
 type ChatHandler struct {
 	svc Service

@@ -23,9 +23,6 @@ func (cli *Client) StreamChat(ctx context.Context, msg domain.ChatMessage) (<-ch
 		return nil, fmt.Errorf("cannot prepare request: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, cli.streamTimeout)
-	defer cancel()
-
 	resp, err := cli.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
@@ -35,78 +32,74 @@ func (cli *Client) StreamChat(ctx context.Context, msg domain.ChatMessage) (<-ch
 		return nil, err
 	}
 
-	return cli.handleStreamResponse(ctx, resp)
-}
-
-func (cli *Client) handleStreamResponse(
-	ctx context.Context,
-	resp *http.Response,
-) (<-chan domain.StreamResult, error) {
-	// Do not communicate by sharing memory; instead, share memory by communicating! (c) Rob Pike
 	msgChan := make(chan domain.StreamResult)
-
-	go func(ctx context.Context) {
-		defer resp.Body.Close()
-		defer close(msgChan)
-
-		start := time.Now()
-
-		var ttft time.Duration
-
-		scanner := bufio.NewScanner(resp.Body)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if isNeedSkip(line) {
-				continue
-			}
-
-			data := strings.TrimPrefix(line, "data: ")
-			if isNeedBreak(data) {
-				break
-			}
-
-			var streamBody responseBody
-
-			if err := sonic.Unmarshal([]byte(data), &streamBody); err != nil {
-				cli.sendMsg(ctx, msgChan, domain.StreamResult{
-					Err: fmt.Errorf("cannot unmarshal stream body: %w", err),
-				})
-				continue
-			}
-
-			if streamBody.Usage != nil {
-				cli.sendMsg(ctx, msgChan, domain.StreamResult{
-					Text: cli.prepareUsageData(streamBody.Usage, ttft, time.Since(start)),
-				})
-				break
-			}
-
-			if len(streamBody.Choices) == 0 {
-				continue
-			}
-
-			choice := streamBody.Choices[0]
-
-			if streamBody.Choices[0].Delta.Content != "" {
-				if ttft == 0 {
-					ttft = time.Since(start)
-				}
-
-				cli.sendMsg(ctx, msgChan, domain.StreamResult{
-					Text: choice.Delta.Content,
-				})
-			}
-		}
-
-		if err := scanner.Err(); err != nil {
-			select {
-			case msgChan <- domain.StreamResult{Err: err}:
-			case <-ctx.Done():
-			}
-		}
-	}(ctx)
+	go cli.streaming(ctx, resp, msgChan)
 
 	return msgChan, nil
+}
+
+func (cli *Client) streaming(ctx context.Context, resp *http.Response, msgChan chan domain.StreamResult) {
+	ctx, cancel := context.WithTimeout(ctx, cli.streamTimeout)
+	defer cancel()
+
+	defer resp.Body.Close()
+	defer close(msgChan)
+
+	start := time.Now()
+
+	var ttft time.Duration
+
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if isNeedSkip(line) {
+			continue
+		}
+
+		data := strings.TrimPrefix(line, "data: ")
+		if isNeedBreak(data) {
+			break
+		}
+
+		var streamBody responseBody
+
+		if err := sonic.Unmarshal([]byte(data), &streamBody); err != nil {
+			cli.sendMsg(ctx, msgChan, domain.StreamResult{
+				Err: fmt.Errorf("cannot unmarshal stream body: %w", err),
+			})
+			continue
+		}
+
+		if streamBody.Usage != nil {
+			cli.sendMsg(ctx, msgChan, domain.StreamResult{
+				Text: cli.prepareUsageData(streamBody.Usage, ttft, time.Since(start)),
+			})
+			break
+		}
+
+		if len(streamBody.Choices) == 0 {
+			continue
+		}
+
+		choice := streamBody.Choices[0]
+
+		if streamBody.Choices[0].Delta.Content != "" {
+			if ttft == 0 {
+				ttft = time.Since(start)
+			}
+
+			cli.sendMsg(ctx, msgChan, domain.StreamResult{
+				Text: choice.Delta.Content,
+			})
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		select {
+		case msgChan <- domain.StreamResult{Err: err}:
+		case <-ctx.Done():
+		}
+	}
 }
 
 func isNeedSkip(line string) bool {

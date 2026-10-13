@@ -1,11 +1,5 @@
 package domain
 
-const (
-	RoleSystem    = "system"
-	RoleUser      = "user"
-	RoleAssistant = "assistant"
-)
-
 type ChatReply struct {
 	Content string
 	Model   string

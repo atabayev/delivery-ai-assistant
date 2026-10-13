@@ -6,9 +6,10 @@ import (
 	"delivery-ai-assistant/internal/config"
 	"delivery-ai-assistant/internal/service"
 	"delivery-ai-assistant/internal/transport/api"
+	"delivery-ai-assistant/pkg/logger"
 	"fmt"
-	"log"
 	"net/http"
+	"time"
 )
 
 type App struct {
@@ -21,14 +22,9 @@ func New(ctx context.Context) (*App, error) {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
 
-	openAIClient := openai.New(
-		&http.Client{},
-		cfg.OpenAI.BaseURL,
-		cfg.OpenAI.Model,
-		cfg.OpenAI.APIKey,
-		cfg.OpenAI.Timeout,
-		cfg.OpenAI.StreamTimeout,
-	)
+	logger.Init(cfg.Service.Name, cfg.Service.Env)
+
+	openAIClient := openai.New(NewStreamingClient(), cfg.LLM)
 
 	svc := service.New(openAIClient)
 	handlers := api.NewChatHandler(svc)
@@ -39,11 +35,22 @@ func New(ctx context.Context) (*App, error) {
 }
 
 func (app *App) Start() error {
-	log.Println("listening ", app.server.Addr)
-
+	logger.Info(fmt.Sprintf("listening on %s", app.server.Addr))
 	if err := app.server.ListenAndServe(); err != nil {
 		return fmt.Errorf("start server: %w", err)
 	}
 
 	return nil
+}
+
+func NewStreamingClient() *http.Client {
+	transport := &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 20,
+		IdleConnTimeout:     90 * time.Second,
+	}
+
+	return &http.Client{
+		Transport: transport,
+	}
 }

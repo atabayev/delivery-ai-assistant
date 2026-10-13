@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"delivery-ai-assistant/internal/config"
 	"net/http"
 	"time"
 )
@@ -16,18 +17,14 @@ type Client struct {
 
 func New(
 	httpClient *http.Client,
-	baseURL string,
-	model string,
-	apiKey string,
-	timeout time.Duration,
-	streamTimeout time.Duration,
+	cfg config.LLM,
 ) *Client {
 	return &Client{
 		httpClient:    httpClient,
-		baseURL:       baseURL,
-		model:         model,
-		apiKey:        apiKey,
-		timeout:       timeout,
-		streamTimeout: streamTimeout,
+		baseURL:       cfg.BaseURL,
+		model:         cfg.Model,
+		apiKey:        cfg.APIKey,
+		timeout:       cfg.Timeout,
+		streamTimeout: cfg.StreamTimeout,
 	}
 }
