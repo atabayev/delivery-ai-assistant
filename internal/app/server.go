@@ -2,9 +2,12 @@ package app
 
 import (
 	"context"
-	"delivery-ai-assistant/internal/transport/api"
 	"fmt"
 	"net/http"
+
+	"delivery-ai-assistant/internal/transport/api"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func initServer(ctx context.Context, handlers *api.ChatHandler, port int) *http.Server {
@@ -18,6 +21,7 @@ func initServer(ctx context.Context, handlers *api.ChatHandler, port int) *http.
 
 	mux.Handle("POST /api/chat", chatHandler)
 	mux.HandleFunc("GET /healthz", handlers.HealthZ)
+	mux.Handle("/metrics", promhttp.Handler())
 
 	return &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),

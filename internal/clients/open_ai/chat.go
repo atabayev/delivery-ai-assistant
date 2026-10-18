@@ -3,10 +3,11 @@ package openai
 import (
 	"bytes"
 	"context"
-	"delivery-ai-assistant/internal/domain"
-
 	"fmt"
 	"net/http"
+
+	"delivery-ai-assistant/internal/domain"
+	"delivery-ai-assistant/internal/metrics"
 
 	"github.com/bytedance/sonic"
 )
@@ -16,8 +17,14 @@ const pathSend = "/chat/completions"
 // Chat sends a user message to the OpenAI Chat Completions API
 // and returns the model reply along with token usage.
 func (cli *Client) Chat(ctx context.Context, msg domain.ChatMessage) (domain.ChatReply, error) {
+	call := metrics.Begin(cli.requestModel(&msg), metrics.ModeSync)
+
+	var callErr error
+	defer func() { call.Finish(callErr) }()
+
 	req, err := cli.prepareRequest(ctx, &msg, false)
 	if err != nil {
+		callErr = err
 		return domain.ChatReply{}, fmt.Errorf("cannot prepare request: %w", err)
 	}
 
@@ -26,12 +33,29 @@ func (cli *Client) Chat(ctx context.Context, msg domain.ChatMessage) (domain.Cha
 
 	resp, err := cli.httpClient.Do(req)
 	if err != nil {
+		callErr = err
 		return domain.ChatReply{}, fmt.Errorf("failed to send request: %w", err)
 	}
 
 	defer resp.Body.Close()
 
-	return cli.handleResponse(resp)
+	reply, err := cli.handleResponse(resp)
+	if err != nil {
+		callErr = err
+		return domain.ChatReply{}, err
+	}
+
+	call.AddTokens(reply.Usage.Prompt, reply.Usage.Completion)
+
+	return reply, nil
+}
+
+func (cli *Client) requestModel(msg *domain.ChatMessage) string {
+	if msg != nil && msg.Model != "" {
+		return msg.Model
+	}
+
+	return cli.model
 }
 
 func (cli *Client) prepareRequest(ctx context.Context, msg *domain.ChatMessage, isStream bool) (*http.Request, error) {
@@ -54,7 +78,6 @@ func (cli *Client) prepareRequest(ctx context.Context, msg *domain.ChatMessage, 
 
 func (cli *Client) prepareRequestBody(msg *domain.ChatMessage, isStream bool) ([]byte, error) {
 	model := cli.model
-
 	if msg.Model != "" {
 		model = msg.Model
 	}
