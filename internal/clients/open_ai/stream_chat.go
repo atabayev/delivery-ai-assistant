@@ -3,6 +3,7 @@ package openai
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/bytedance/sonic"
 )
+
+var errStreamInterrupted = errors.New("stream interrupted")
 
 // StreamChat sends a user message to the OpenAI Chat Completions API
 // and returns the model reply along with token usage.
@@ -68,8 +71,6 @@ func (cli *Client) streaming(
 		hasUsage         bool
 	)
 
-	// Finish before the channel is closed, so a reader that drains msgChan
-	// observes the final metric values.
 	defer func() {
 		if streamErr == nil && hasUsage {
 			call.AddTokens(promptTokens, completionTokens)
@@ -78,8 +79,21 @@ func (cli *Client) streaming(
 		call.Finish(streamErr)
 	}()
 
+	fail := func(err error) {
+		if streamErr == nil {
+			streamErr = err
+		}
+
+		cli.sendMsg(ctx, msgChan, streamError(err))
+	}
+
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			fail(err)
+			return
+		}
+
 		line := scanner.Text()
 		if isNeedSkip(line) {
 			continue
@@ -93,14 +107,8 @@ func (cli *Client) streaming(
 		var streamBody responseBody
 
 		if err := sonic.Unmarshal([]byte(data), &streamBody); err != nil {
-			if streamErr == nil {
-				streamErr = err
-			}
-
-			cli.sendMsg(ctx, msgChan, domain.StreamResult{
-				Err: fmt.Errorf("cannot unmarshal stream body: %w", err),
-			})
-			continue
+			fail(fmt.Errorf("cannot unmarshal stream body: %w", err))
+			return
 		}
 
 		if streamBody.Usage != nil {
@@ -108,10 +116,21 @@ func (cli *Client) streaming(
 			promptTokens = streamBody.Usage.PromptTokens
 			completionTokens = streamBody.Usage.CompletionTokens
 
-			cli.sendMsg(ctx, msgChan, domain.StreamResult{
-				Text: cli.prepareUsageData(streamBody.Usage, ttft, time.Since(start)),
+			sent := cli.sendMsg(ctx, msgChan, domain.StreamResult{
+				Kind: domain.StreamDone,
+				Usage: domain.Usage{
+					Prompt:     promptTokens,
+					Completion: completionTokens,
+					Total:      streamBody.Usage.TotalTokens,
+				},
+				TTFT:  ttft,
+				Total: time.Since(start),
 			})
-			break
+			if !sent && streamErr == nil {
+				streamErr = ctx.Err()
+			}
+
+			return
 		}
 
 		if len(streamBody.Choices) == 0 {
@@ -128,24 +147,30 @@ func (cli *Client) streaming(
 			call.ObserveFirstToken()
 		}
 
-		cli.sendMsg(ctx, msgChan, domain.StreamResult{
+		if !cli.sendMsg(ctx, msgChan, domain.StreamResult{
+			Kind: domain.StreamDelta,
 			Text: choice.Delta.Content,
-		})
+		}) {
+			if streamErr == nil {
+				streamErr = ctx.Err()
+			}
+
+			return
+		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		if streamErr == nil {
-			streamErr = err
-		}
-
-		select {
-		case msgChan <- domain.StreamResult{Err: err}:
-		case <-ctx.Done():
-		}
+		fail(err)
+		return
 	}
 
-	if streamErr == nil && ctx.Err() != nil {
-		streamErr = ctx.Err()
+	if err := ctx.Err(); err != nil {
+		fail(err)
+		return
+	}
+
+	if !hasUsage {
+		fail(errStreamInterrupted)
 	}
 }
 
@@ -157,15 +182,21 @@ func isNeedBreak(data string) bool {
 	return data == "[DONE]"
 }
 
-func (cli *Client) sendMsg(ctx context.Context, ch chan<- domain.StreamResult, msg domain.StreamResult) {
+func (cli *Client) sendMsg(ctx context.Context, ch chan<- domain.StreamResult, msg domain.StreamResult) bool {
 	select {
 	case ch <- msg:
+		return true
 	case <-ctx.Done():
-		ch <- domain.StreamResult{Err: ctx.Err()}
+		ch <- streamError(ctx.Err())
+		return false
 	}
 }
 
-func (cli *Client) prepareUsageData(usg *usage, ttft, total time.Duration) string {
-	return fmt.Sprintf("\n\nmodel=%s prompt_tokens=%d completion_tokens=%d ttft=%.1fs total=%.1fs\n",
-		cli.model, usg.PromptTokens, usg.CompletionTokens, ttft.Seconds(), total.Seconds())
+func streamError(err error) domain.StreamResult {
+	return domain.StreamResult{
+		Kind:    domain.StreamError,
+		Err:     err,
+		ErrCode: domain.StreamCodeUpstream,
+		ErrMsg:  domain.StreamMsgInterrupted,
+	}
 }

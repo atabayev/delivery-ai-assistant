@@ -47,7 +47,7 @@ func (h *ChatHandler) handleRegularChat(
 
 	w.Header().Set("Content-Type", "application/json")
 
-	if err = sonic.ConfigDefault.NewEncoder(w).Encode(h.domainToChatReq(result)); err != nil {
+	if err = sonic.ConfigDefault.NewEncoder(w).Encode(h.domainToChatResponse(result)); err != nil {
 		logger.Error("encoding response", "error", err)
 	}
 }
@@ -76,24 +76,58 @@ func (h *ChatHandler) handleStreamChat(
 	w.Header().Set("Connection", "keep-alive")
 
 	for item := range streamCh {
-		if item.Err != nil {
-			_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n", item.Err)
-			flusher.Flush()
+		switch item.Kind {
+		case domain.StreamDelta:
+			if item.Text == "" {
+				continue
+			}
+
+			if err = writeSSE(w, flusher, "delta", streamDeltaData{Text: item.Text}); err != nil {
+				logger.Error("write stream response", "error", err)
+				return
+			}
+		case domain.StreamDone:
+			err = writeSSE(w, flusher, "done", streamDoneData{
+				Usage: usage{
+					PromptTokens:     item.Usage.Prompt,
+					CompletionTokens: item.Usage.Completion,
+				},
+				TTFTMs:  item.TTFT.Milliseconds(),
+				TotalMs: item.Total.Milliseconds(),
+			})
+			if err != nil {
+				logger.Error("write stream response", "error", err)
+			}
+
+			return
+		case domain.StreamError:
 			logger.Error("streaming chat response", "error", item.Err)
+
+			if err = writeSSE(w, flusher, "error", streamErrorData{
+				Code:    item.ErrCode,
+				Message: item.ErrMsg,
+			}); err != nil {
+				logger.Error("write stream response", "error", err)
+			}
+
 			return
 		}
-
-		if item.Text == "" {
-			continue
-		}
-
-		if _, err = fmt.Fprintf(w, "data: %s\n\n", item.Text); err != nil {
-			logger.Error("write stream response", "error", err)
-			return
-		}
-
-		flusher.Flush()
 	}
+}
+
+func writeSSE(w http.ResponseWriter, flusher http.Flusher, event string, payload any) error {
+	data, err := sonic.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal sse payload: %w", err)
+	}
+
+	if _, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data); err != nil {
+		return err
+	}
+
+	flusher.Flush()
+
+	return nil
 }
 
 func (h *ChatHandler) chatReqToDomain(req chatRequest) domain.ChatMessage {
@@ -112,16 +146,15 @@ func (h *ChatHandler) chatReqToDomain(req chatRequest) domain.ChatMessage {
 	return res
 }
 
-func (h *ChatHandler) domainToChatReq(res domain.ChatReply) chatResponse {
+func (h *ChatHandler) domainToChatResponse(res domain.ChatReply) chatResponse {
 	return chatResponse{
 		Content: res.Content,
 		Model:   res.Model,
 		Usage: usage{
 			PromptTokens:     res.Usage.Prompt,
 			CompletionTokens: res.Usage.Completion,
-			Total:            res.Usage.Total,
 		},
-		LatencyMs: 0,
+		LatencyMs: res.Latency.Milliseconds(),
 	}
 }
 
@@ -167,8 +200,8 @@ func (h *ChatHandler) handleError(w http.ResponseWriter, code int, msg string) {
 func (h *ChatHandler) mapCodeMessage(code int) string {
 	switch code {
 	case http.StatusBadRequest:
-		return "invalid request"
+		return "invalid_request"
 	default:
-		return "internal server error"
+		return "internal_error"
 	}
 }

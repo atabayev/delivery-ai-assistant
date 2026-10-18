@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"delivery-ai-assistant/internal/domain"
 	"delivery-ai-assistant/internal/metrics"
@@ -31,6 +32,8 @@ func (cli *Client) Chat(ctx context.Context, msg domain.ChatMessage) (domain.Cha
 	ctx, cancel := context.WithTimeout(ctx, cli.timeout)
 	defer cancel()
 
+	start := time.Now()
+
 	resp, err := cli.httpClient.Do(req)
 	if err != nil {
 		callErr = err
@@ -45,6 +48,7 @@ func (cli *Client) Chat(ctx context.Context, msg domain.ChatMessage) (domain.Cha
 		return domain.ChatReply{}, err
 	}
 
+	reply.Latency = time.Since(start)
 	call.AddTokens(reply.Usage.Prompt, reply.Usage.Completion)
 
 	return reply, nil
