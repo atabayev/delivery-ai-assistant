@@ -15,11 +15,12 @@ func (h *ChatHandler) Chat(w http.ResponseWriter, r *http.Request) {
 	var req chatRequest
 
 	if err := sonic.ConfigDefault.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.handleError(w, http.StatusBadRequest, "request body must not exceed 1 MB")
+		h.handleError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	if err := h.validateChatReq(w, req); err != nil {
+		logger.Error("invalid request body", "error", err)
 		return
 	}
 
